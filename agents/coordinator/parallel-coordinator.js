@@ -35,7 +35,7 @@ const AGENTS = {
   evaluator: {
     name: 'Evaluator Agent',
     script: 'scripts/rank-topics.js',
-    timeout: 120000,
+    timeout: 300000, // 增加到 300 秒（5分钟）
     retries: 3
   },
   writer: {

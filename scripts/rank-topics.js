@@ -26,6 +26,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 const CLAUDE_BASE_URL = process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com';
 
+// 禁用不稳定的 Gemini API
+const USE_GEMINI = false;
+
 // -- Load Config -------------------------------------------------------------
 
 async function loadConfig() {
@@ -160,18 +163,25 @@ async function main() {
 
   console.log(`📊 话题数: ${topics.length}\n`);
 
-  // 3. Gemini 初评
-  console.log('1️⃣  Gemini 初评:');
-  const geminiScores = [];
-  for (const topic of topics) {
-    try {
-      const score = await geminiScore(topic, config);
-      geminiScores.push(score);
-      console.log(`   ✓ ${topic.主话题}: ${score.综合得分}分`);
-    } catch (err) {
-      console.log(`   ✗ ${topic.主话题}: ${err.message}`);
-      geminiScores.push({ 综合得分: 0, 评分: {}, 推荐理由: '评分失败' });
+  // 3. Gemini 初评（可选）
+  let geminiScores = [];
+
+  if (USE_GEMINI) {
+    console.log('1️⃣  Gemini 初评:');
+    for (const topic of topics) {
+      try {
+        const score = await geminiScore(topic, config);
+        geminiScores.push(score);
+        console.log(`   ✓ ${topic.主话题}: ${score.综合得分}分`);
+      } catch (err) {
+        console.log(`   ✗ ${topic.主话题}: ${err.message}`);
+        geminiScores.push({ 综合得分: 0, 评分: {}, 推荐理由: '评分失败' });
+      }
     }
+  } else {
+    console.log('1️⃣  Gemini 初评: 已禁用，跳过');
+    // 使用默认分数
+    geminiScores = topics.map(() => ({ 综合得分: 80, 评分: {}, 推荐理由: '使用默认评分' }));
   }
 
   // 4. Claude 复评
