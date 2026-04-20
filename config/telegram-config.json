@@ -1,0 +1,62 @@
+{
+  "bot_token": "${TELEGRAM_BOT_TOKEN}",
+  "chat_id": "${TELEGRAM_CHAT_ID}",
+  "message_templates": {
+    "summary": "🚗 今日热点推荐 #{{rank}}\n\n📌 话题：{{topic}}\n⭐ 推荐度：{{score}}/100\n\n━━━━━━━━━━━━━━━━\n\n📝 标题：\n{{title}}\n\n📊 关键数据：\n{{key_points}}\n\n💡 核心观点：\n{{summary}}\n\n━━━━━━━━━━━━━━━━\n\n📄 字数：{{word_count}}字\n📚 参考素材：{{material_count}}篇\n🤖 生成模型：Gemini + Claude\n\n━━━━━━━━━━━━━━━━\n\n👇 选择查看完整文章：",
+    "full_article": "━━━━━━━━━━━━━━━━\n{{platform_emoji}} {{platform_name}}版本\n━━━━━━━━━━━━━━━━\n\n标题：{{title}}\n\n{{content}}\n\n━━━━━━━━━━━━━━━━\n📊 字数：{{word_count}}字\n🔗 参考素材：{{material_count}}篇\n━━━━━━━━━━━━━━━━",
+    "daily_digest": "📅 {{date}} 汽车热点日报\n\n今日为您推荐 {{topic_count}} 个热点话题：\n\n{{topic_list}}\n\n━━━━━━━━━━━━━━━━\n\n点击下方按钮查看详情 👇"
+  },
+  "buttons": {
+    "platforms": [
+      {
+        "text": "📱 知乎版",
+        "callback_prefix": "view_zhihu_"
+      },
+      {
+        "text": "🎨 小红书版",
+        "callback_prefix": "view_xiaohongshu_"
+      },
+      {
+        "text": "🎬 YouTube脚本",
+        "callback_prefix": "view_youtube_"
+      },
+      {
+        "text": "📰 今日头条版",
+        "callback_prefix": "view_toutiao_"
+      },
+      {
+        "text": "💬 微信公众号版",
+        "callback_prefix": "view_weixin_"
+      }
+    ],
+    "actions": [
+      {
+        "text": "📥 下载完整文章",
+        "callback_prefix": "download_"
+      },
+      {
+        "text": "🔄 查看其他话题",
+        "callback_data": "next_topic"
+      },
+      {
+        "text": "👍 有用",
+        "callback_prefix": "feedback_useful_"
+      },
+      {
+        "text": "👎 无用",
+        "callback_prefix": "feedback_useless_"
+      }
+    ]
+  },
+  "send_options": {
+    "parse_mode": "Markdown",
+    "disable_web_page_preview": false,
+    "max_message_length": 4096,
+    "split_long_messages": true
+  },
+  "schedule": {
+    "enabled": true,
+    "time": "08:00",
+    "timezone": "Asia/Shanghai"
+  }
+}

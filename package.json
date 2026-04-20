@@ -1,0 +1,29 @@
+{
+  "name": "car-content-curator",
+  "version": "1.0.0",
+  "description": "汽车内容策展系统 - 每天自动发现热点、写文章、推送",
+  "type": "module",
+  "scripts": {
+    "feed": "node scripts/generate-feed.js",
+    "cluster": "node scripts/cluster-topics.js",
+    "rank": "node scripts/rank-topics.js",
+    "write": "node scripts/write-articles.js",
+    "write-single": "node scripts/write-single.js",
+    "deliver": "node scripts/deliver.js",
+    "all": "npm run feed && npm run cluster && npm run rank && npm run write && npm run deliver",
+    "coordinator": "node agents/coordinator/coordinator.js",
+    "parallel": "node agents/coordinator/parallel-coordinator.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.64.0",
+    "playwright": "^1.42.1",
+    "xml2js": "^0.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

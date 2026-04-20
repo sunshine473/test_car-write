@@ -1,0 +1,48 @@
+{
+  "name": "car-content-producer",
+  "version": "1.0.0",
+  "description": "汽车内容自动策展系统 - 每天自动发现热点、生成文章、推送到Telegram",
+  "author": "Claude & Dora",
+  "entrypoint": "run.sh",
+  "args": {
+    "module": {
+      "type": "string",
+      "description": "要运行的模块",
+      "default": "all",
+      "choices": ["feed", "cluster", "rank", "write", "deliver", "all"]
+    }
+  },
+  "requirements": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "env": {
+    "TAVILY_API_KEY": {
+      "required": true,
+      "description": "Tavily 搜索 API Key"
+    },
+    "GEMINI_API_KEY": {
+      "required": true,
+      "description": "Gemini API Key"
+    },
+    "CLAUDE_API_KEY": {
+      "required": true,
+      "description": "Claude API Key"
+    },
+    "CLAUDE_BASE_URL": {
+      "required": false,
+      "description": "Claude API Base URL",
+      "default": "https://api.anthropic.com"
+    },
+    "TELEGRAM_BOT_TOKEN": {
+      "required": true,
+      "description": "Telegram Bot Token"
+    },
+    "TELEGRAM_CHAT_ID": {
+      "required": true,
+      "description": "Telegram Chat ID"
+    }
+  },
+  "tags": ["automation", "content", "car", "telegram", "ai"],
+  "license": "MIT"
+}

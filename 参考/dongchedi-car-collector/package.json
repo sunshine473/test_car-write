@@ -1,0 +1,20 @@
+{
+  "name": "dongchedi-car-collector",
+  "version": "1.0.0",
+  "description": "懂车帝车型参数与官方图片采集小模块",
+  "type": "module",
+  "main": "src/cli.js",
+  "scripts": {
+    "scrape": "node src/cli.js",
+    "test": "node src/cli.js --help"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^14.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

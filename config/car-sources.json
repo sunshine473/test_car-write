@@ -1,0 +1,152 @@
+{
+  "懂车帝创作者": [
+    {
+      "name": "萝卜报告",
+      "userId": "4661945771",
+      "platform": "dongchedi",
+      "column": "震震有词",
+      "type": "verified_creator",
+      "enabled": true
+    },
+    {
+      "name": "大姚和他的朋友们",
+      "userId": "6499991764",
+      "platform": "dongchedi",
+      "column": "车主请留止",
+      "type": "verified_creator",
+      "enabled": true
+    },
+    {
+      "name": "车老师李松桥",
+      "userId": "105796290280",
+      "platform": "dongchedi",
+      "column": "小桥驾到",
+      "type": "exclusive_signed",
+      "enabled": true
+    },
+    {
+      "name": "车圈小晨",
+      "userId": "6867604209",
+      "platform": "dongchedi",
+      "column": "超能拆",
+      "type": "exclusive_signed",
+      "enabled": true
+    },
+    {
+      "name": "几分钟义务教室",
+      "userId": "94778405146",
+      "platform": "dongchedi",
+      "column": "几分钟义务评个车",
+      "type": "verified_creator",
+      "enabled": true
+    },
+    {
+      "name": "玩车报告",
+      "userId": "99436225486",
+      "platform": "dongchedi",
+      "column": "巅峰对决",
+      "type": "official_program",
+      "enabled": true
+    },
+    {
+      "name": "懂车帝原创",
+      "userId": "6480145787",
+      "platform": "dongchedi",
+      "column": "猎车旗舰店",
+      "type": "official",
+      "enabled": true
+    },
+    {
+      "name": "懂车帝玩车",
+      "userId": "3614842525582909",
+      "platform": "dongchedi",
+      "column": "懂车帝试驾日",
+      "type": "official",
+      "enabled": true
+    },
+    {
+      "name": "懂车帝通讯",
+      "userId": "3984247783162174",
+      "platform": "dongchedi",
+      "column": "爱车生活",
+      "type": "official",
+      "enabled": true
+    },
+    {
+      "name": "北京交警",
+      "userId": "6269027922",
+      "platform": "dongchedi",
+      "column": "安行天下",
+      "type": "official",
+      "enabled": true
+    }
+  ],
+  "行业Builder_微博": [
+    {
+      "name": "雷军",
+      "handle": "待补充",
+      "company": "小米汽车",
+      "enabled": true
+    },
+    {
+      "name": "李想",
+      "handle": "待补充",
+      "company": "理想汽车",
+      "enabled": true
+    },
+    {
+      "name": "何小鹏",
+      "handle": "待补充",
+      "company": "小鹏汽车",
+      "enabled": true
+    },
+    {
+      "name": "李斌",
+      "handle": "待补充",
+      "company": "蔚来汽车",
+      "enabled": true
+    },
+    {
+      "name": "余承东",
+      "handle": "待补充",
+      "company": "华为智选车",
+      "enabled": true
+    }
+  ],
+  "新车发布_网页": [
+    {
+      "name": "懂车帝新车频道",
+      "url": "https://www.dongchedi.com/newcar",
+      "scrapeType": "html",
+      "enabled": true
+    },
+    {
+      "name": "汽车之家新车",
+      "url": "https://www.autohome.com.cn/newcar",
+      "scrapeType": "html",
+      "enabled": true
+    }
+  ],
+  "Tavily搜索": [
+    {
+      "query": "电动车新闻 2026",
+      "maxResults": 5,
+      "enabled": true
+    },
+    {
+      "query": "新能源汽车测评",
+      "maxResults": 5,
+      "enabled": true
+    },
+    {
+      "query": "智能驾驶技术突破",
+      "maxResults": 5,
+      "enabled": true
+    },
+    {
+      "query": "造车新势力动态",
+      "maxResults": 5,
+      "enabled": true
+    }
+  ]
+}
