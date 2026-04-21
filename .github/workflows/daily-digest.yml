@@ -29,6 +29,14 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
+      - name: Validate Telegram secrets
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          test -n "$TELEGRAM_BOT_TOKEN" || (echo "❌ Missing TELEGRAM_BOT_TOKEN" && exit 1)
+          test -n "$TELEGRAM_CHAT_ID" || (echo "❌ Missing TELEGRAM_CHAT_ID" && exit 1)
+
       - name: Run complete pipeline
         env:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
@@ -59,7 +67,7 @@ jobs:
 
           echo ""
           echo "📤 Module 5: Deliver to Telegram"
-          npm run deliver || echo "⚠️ Module 5 failed"
+          npm run deliver
 
           echo ""
           echo "✅ Pipeline completed"

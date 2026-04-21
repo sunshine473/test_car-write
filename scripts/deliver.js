@@ -24,6 +24,16 @@ const CONFIG_PATH = join(__dirname, '..', 'config', 'telegram-config.json');
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
+function validateTelegramEnv() {
+  const missing = [];
+  if (!TELEGRAM_BOT_TOKEN) missing.push('TELEGRAM_BOT_TOKEN');
+  if (!TELEGRAM_CHAT_ID) missing.push('TELEGRAM_CHAT_ID');
+
+  if (missing.length > 0) {
+    throw new Error(`缺少 Telegram 环境变量: ${missing.join(', ')}`);
+  }
+}
+
 // -- Load Config -------------------------------------------------------------
 
 async function loadConfig() {
@@ -140,16 +150,12 @@ async function sendArticleSummary(article, config, rank) {
   const buttons = createButtons(article, config);
 
   // 3. 发送消息
-  try {
-    await sendTelegramMessage(summaryText, {
-      reply_markup: {
-        inline_keyboard: buttons
-      }
-    });
-    console.log(`   ✓ 发送成功`);
-  } catch (err) {
-    console.log(`   ✗ 发送失败: ${err.message}`);
-  }
+  await sendTelegramMessage(summaryText, {
+    reply_markup: {
+      inline_keyboard: buttons
+    }
+  });
+  console.log(`   ✓ 发送成功`);
 }
 
 // -- Send Full Article -------------------------------------------------------
@@ -210,6 +216,8 @@ async function main() {
   console.log('🚗 Car Content Curator - Module 5: Deliver to Telegram');
   console.log('========================================================\n');
 
+  validateTelegramEnv();
+
   // 1. 读取配置
   const config = await loadConfig();
   console.log('📋 配置加载完成');
@@ -225,16 +233,35 @@ async function main() {
   console.log(`📂 找到 ${articleFiles.length} 篇文章\n`);
 
   // 3. 发送每篇文章的摘要
+  let successCount = 0;
+  let failureCount = 0;
+
   for (let i = 0; i < articleFiles.length; i++) {
     const filePath = join(ARTICLES_DIR, articleFiles[i]);
     const article = JSON.parse(await readFile(filePath, 'utf-8'));
 
-    await sendArticleSummary(article, config, i + 1);
+    try {
+      await sendArticleSummary(article, config, i + 1);
+      successCount++;
+    } catch (err) {
+      failureCount++;
+      console.error(`   ✗ 发送失败: ${err.message}`);
+    }
 
     // 避免限流
     if (i < articleFiles.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
+  }
+
+  console.log(`\n📊 发送结果: 成功 ${successCount} 篇, 失败 ${failureCount} 篇`);
+
+  if (successCount === 0) {
+    throw new Error('Telegram 推送失败：没有任何文章发送成功');
+  }
+
+  if (failureCount > 0) {
+    throw new Error(`Telegram 推送部分失败：${failureCount} 篇发送失败`);
   }
 
   console.log('\n✅ 所有文章已推送到 Telegram！');
