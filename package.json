@@ -9,7 +9,8 @@
     "rank": "node scripts/rank-topics.js",
     "write": "node scripts/write-articles.js",
     "write-single": "node scripts/write-single.js",
-    "deliver": "node scripts/deliver.js",
+    "deliver": "python3 scripts/telegram_deliver.py",
+    "deliver-node": "node scripts/deliver.js",
     "all": "npm run feed && npm run cluster && npm run rank && npm run write && npm run deliver",
     "coordinator": "node agents/coordinator/coordinator.js",
     "parallel": "node agents/coordinator/parallel-coordinator.js"
