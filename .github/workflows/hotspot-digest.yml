@@ -1,0 +1,59 @@
+name: Hotspot Digest
+
+on:
+  schedule:
+    # 每天北京时间 9:00 和 15:00（UTC 1:00 和 7:00）
+    - cron: '0 1 * * *'
+    - cron: '0 7 * * *'
+  workflow_dispatch: # 允许手动触发
+
+permissions:
+  contents: read
+
+jobs:
+  hotspot-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: pip3 install requests
+
+      - name: Run hotspot digest
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          CLAUDE_BASE_URL: ${{ secrets.CLAUDE_BASE_URL }}
+        run: |
+          echo "🔥 Starting Hotspot Digest"
+          echo "========================================"
+
+          # 检查是否有今天的 feed 数据
+          TODAY=$(date -u +%Y-%m-%d)
+          FEED_FILE="data/feeds/feed-${TODAY}.json"
+
+          if [ ! -f "$FEED_FILE" ]; then
+            echo "⚠️  今天的 feed 数据不存在，先运行 feed 生成"
+
+            # 安装 Node.js 依赖
+            npm ci
+            npx playwright install chromium --with-deps
+
+            # 生成 feed
+            export TAVILY_API_KEY="${{ secrets.TAVILY_API_KEY }}"
+            npm run feed || (echo "❌ Feed 生成失败" && exit 1)
+          fi
+
+          # 运行热点速递
+          python3 scripts/hotspot_digest.py
+
+          echo ""
+          echo "✅ Hotspot digest completed"

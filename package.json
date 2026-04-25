@@ -11,6 +11,7 @@
     "write-single": "node scripts/write-single.js",
     "deliver": "python3 -u scripts/telegram_deliver.py",
     "deliver-node": "node scripts/deliver.js",
+    "hotspot": "python3 -u scripts/hotspot_digest.py",
     "all": "npm run feed && npm run cluster && npm run rank && npm run write && npm run deliver",
     "coordinator": "node agents/coordinator/coordinator.js",
     "parallel": "node agents/coordinator/parallel-coordinator.js"
