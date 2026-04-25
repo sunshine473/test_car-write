@@ -54,6 +54,26 @@ def format_article(article, rank):
     material_count = article.get('素材统计', {}).get('总计', 0)
     content = article.get('通用版本', {}).get('正文', '')
 
+    # 构建参考链接列表
+    references = article.get('参考素材', [])
+    reference_text = ''
+
+    if references:
+        reference_text = '\n\n━━━━━━━━━━━━━━━━\n\n📚 参考资料：\n\n'
+        for i, ref in enumerate(references[:10], 1):  # 最多显示10个链接
+            if isinstance(ref, dict):
+                ref_title = ref.get('标题', '未知标题')
+                ref_link = ref.get('链接', '')
+                ref_source = ref.get('来源', '')
+
+                if ref_link:
+                    reference_text += f"{i}. {ref_title}\n   🔗 {ref_link}\n\n"
+                else:
+                    reference_text += f"{i}. {ref_title} ({ref_source})\n\n"
+            elif isinstance(ref, str):
+                # 兼容旧格式
+                reference_text += f"{i}. {ref}\n\n"
+
     return f"""🏆 今日推荐 #{rank}
 
 📌 话题：{topic}
@@ -70,8 +90,7 @@ def format_article(article, rank):
 
 📊 字数：{word_count}字
 📚 参考素材：{material_count}篇
-🤖 生成模型：Gemini + Claude
-"""
+🤖 生成模型：Gemini + Claude{reference_text}"""
 
 def split_long_text(text, max_length=4000):
     """按段落拆分超长消息，避免超出 Telegram 长度限制。"""

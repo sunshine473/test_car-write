@@ -267,7 +267,11 @@ async function generateArticle(topic, config) {
     YouTube脚本: platforms.youtube,
     今日头条版本: platforms.toutiao,
     微信公众号版本: platforms.weixin,
-    参考素材: allMaterials.map(m => `${m.标题} (${m.来源})`),
+    参考素材: allMaterials.map(m => ({
+      标题: m.标题,
+      来源: m.来源,
+      链接: m.链接 || m.url || ''
+    })),
     质量检查: qualityCheck
   };
 }
