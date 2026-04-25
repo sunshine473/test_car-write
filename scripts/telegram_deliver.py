@@ -1,40 +1,47 @@
 #!/usr/bin/env python3
-"""
-Telegram 推送脚本 - 推送生成的文章到 Telegram
-"""
+"""Telegram 推送脚本 - 推送生成的文章到 Telegram。"""
 
 import os
 import json
 import requests
 from pathlib import Path
-from datetime import datetime
 
 # 配置
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+ENV_PATH = Path(__file__).parent.parent / '.env'
 ARTICLES_DIR = Path(__file__).parent.parent / 'data' / 'articles'
 
-def escape_markdown(text):
-    """转义 Markdown 特殊字符"""
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in special_chars:
-        text = text.replace(char, f'\\{char}')
-    return text
+def load_local_env():
+    """当环境变量未注入时，从 .env 补齐。"""
+    if not ENV_PATH.exists():
+        return
+
+    for raw in ENV_PATH.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+load_local_env()
+
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 def send_telegram_message(text, buttons=None):
-    """发送 Telegram 消息"""
+    """发送 Telegram 消息。默认使用纯文本，避免 MarkdownV2 解析失败。"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
-        "parse_mode": "MarkdownV2"
     }
 
     if buttons:
         payload["reply_markup"] = {"inline_keyboard": buttons}
 
-    response = requests.post(url, json=payload)
+    response = requests.post(url, json=payload, timeout=20)
 
     if not response.ok:
         raise Exception(f"Telegram API error: {response.text}")
@@ -42,7 +49,7 @@ def send_telegram_message(text, buttons=None):
     return response.json()
 
 def format_summary(article, rank):
-    """格式化文章摘要"""
+    """格式化文章摘要。使用纯文本，规避 Telegram MarkdownV2 转义问题。"""
     title = article.get('通用版本', {}).get('标题', '无标题')
     topic = article.get('话题', '未知话题')
     word_count = article.get('通用版本', {}).get('字数', 0)
@@ -50,23 +57,23 @@ def format_summary(article, rank):
     content = article.get('通用版本', {}).get('正文', '')
     preview = content[:150] + '...' if len(content) > 150 else content
 
-    summary = f"""🏆 *今日推荐 \\#{rank}*
+    summary = f"""🏆 今日推荐 #{rank}
 
-📌 话题：{escape_markdown(topic)}
+📌 话题：{topic}
 
 ━━━━━━━━━━━━━━━━
 
 📝 标题：
-{escape_markdown(title)}
+{title}
 
 💡 内容预览：
-{escape_markdown(preview)}
+{preview}
 
 ━━━━━━━━━━━━━━━━
 
 📊 字数：{word_count}字
 📚 参考素材：{material_count}篇
-🤖 生成模型：Gemini \\+ Claude
+🤖 生成模型：Gemini + Claude
 
 ━━━━━━━━━━━━━━━━
 

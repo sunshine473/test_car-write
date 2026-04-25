@@ -89,8 +89,15 @@ jobs:
 
       - name: Commit and push generated data
         if: success()
+        continue-on-error: true
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add data/
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-generated content $(date +'%Y-%m-%d')" && git push)
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "ℹ️ No generated data changes to commit"
+          else
+            git commit -m "🤖 Auto-generated content $(date +'%Y-%m-%d')"
+            git pull --rebase origin main || echo "⚠️ Rebase skipped"
+            git push || echo "⚠️ Push skipped"
+          fi
