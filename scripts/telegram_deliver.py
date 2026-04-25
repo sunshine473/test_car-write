@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Telegram 推送脚本 - 推送生成的文章到 Telegram。"""
+"""Telegram 推送脚本 - 直接推送文章全文到 Telegram。"""
 
 import os
 import json
 import requests
+import time
 from pathlib import Path
 
 # 配置
@@ -29,7 +30,7 @@ load_local_env()
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-def send_telegram_message(text, buttons=None):
+def send_telegram_message(text):
     """发送 Telegram 消息。默认使用纯文本，避免 MarkdownV2 解析失败。"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
@@ -38,9 +39,6 @@ def send_telegram_message(text, buttons=None):
         "text": text,
     }
 
-    if buttons:
-        payload["reply_markup"] = {"inline_keyboard": buttons}
-
     response = requests.post(url, json=payload, timeout=20)
 
     if not response.ok:
@@ -48,16 +46,15 @@ def send_telegram_message(text, buttons=None):
 
     return response.json()
 
-def format_summary(article, rank):
-    """格式化文章摘要。使用纯文本，规避 Telegram MarkdownV2 转义问题。"""
+def format_article(article, rank):
+    """格式化完整文章。使用纯文本，规避 Telegram MarkdownV2 转义问题。"""
     title = article.get('通用版本', {}).get('标题', '无标题')
     topic = article.get('话题', '未知话题')
     word_count = article.get('通用版本', {}).get('字数', 0)
     material_count = article.get('素材统计', {}).get('总计', 0)
     content = article.get('通用版本', {}).get('正文', '')
-    preview = content[:150] + '...' if len(content) > 150 else content
 
-    summary = f"""🏆 今日推荐 #{rank}
+    return f"""🏆 今日推荐 #{rank}
 
 📌 话题：{topic}
 
@@ -66,66 +63,68 @@ def format_summary(article, rank):
 📝 标题：
 {title}
 
-💡 内容预览：
-{preview}
+📄 全文：
+{content}
 
 ━━━━━━━━━━━━━━━━
 
 📊 字数：{word_count}字
 📚 参考素材：{material_count}篇
 🤖 生成模型：Gemini + Claude
+"""
 
-━━━━━━━━━━━━━━━━
+def split_long_text(text, max_length=4000):
+    """按段落拆分超长消息，避免超出 Telegram 长度限制。"""
+    paragraphs = [paragraph for paragraph in text.split('\n\n') if paragraph.strip()]
+    chunks = []
+    current = ''
 
-👇 选择查看完整文章："""
+    def append_chunk(chunk):
+        if chunk.strip():
+            chunks.append(chunk.rstrip())
 
-    return summary
+    for paragraph in paragraphs:
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) <= max_length:
+            current = candidate
+            continue
 
-def create_buttons(article):
-    """创建按钮"""
-    buttons = []
-    topic_id = article.get('话题ID', 'unknown')
+        if current:
+            append_chunk(current)
+            current = ''
 
-    # 第一行：平台版本
-    platform_row = []
-    if article.get('知乎版本'):
-        platform_row.append({
-            "text": "📖 知乎版",
-            "callback_data": f"view_zhihu_{topic_id}"
-        })
-    if article.get('小红书版本'):
-        platform_row.append({
-            "text": "📷 小红书版",
-            "callback_data": f"view_xiaohongshu_{topic_id}"
-        })
-    if article.get('微信公众号版本'):
-        platform_row.append({
-            "text": "💬 微信版",
-            "callback_data": f"view_weixin_{topic_id}"
-        })
+        if len(paragraph) <= max_length:
+            current = paragraph
+            continue
 
-    if platform_row:
-        buttons.append(platform_row)
+        start = 0
+        while start < len(paragraph):
+            end = start + max_length
+            chunks.append(paragraph[start:end].rstrip())
+            start = end
 
-    # 第二行：完整文章
-    buttons.append([{
-        "text": "📄 查看完整文章",
-        "callback_data": f"view_full_{topic_id}"
-    }])
+    append_chunk(current)
 
-    # 第三行：反馈
-    buttons.append([
-        {
-            "text": "👍 有用",
-            "callback_data": f"feedback_useful_{topic_id}"
-        },
-        {
-            "text": "👎 无用",
-            "callback_data": f"feedback_useless_{topic_id}"
-        }
-    ])
+    if len(chunks) <= 1:
+        return chunks
 
-    return buttons
+    prefixed_chunks = []
+    total = len(chunks)
+    for index, chunk in enumerate(chunks, 1):
+        if index == 1:
+            prefixed_chunks.append(chunk)
+        else:
+            prefixed_chunks.append(f"（续 {index}/{total}）\n\n{chunk}")
+    return prefixed_chunks
+
+def send_article(article, rank):
+    """直接发送完整文章，超长时自动分段。"""
+    chunks = split_long_text(format_article(article, rank))
+
+    for index, chunk in enumerate(chunks, 1):
+        send_telegram_message(chunk)
+        if index < len(chunks):
+            time.sleep(0.5)
 
 def main():
     print('🚗 Car Content Curator - Telegram Delivery')
@@ -159,18 +158,13 @@ def main():
             topic = article.get('话题', '未知')
             print(f'📤 发送文章 {i}: {topic}')
 
-            # 格式化并发送
-            summary = format_summary(article, i)
-            buttons = create_buttons(article)
-
-            send_telegram_message(summary, buttons)
+            send_article(article, i)
 
             print(f'   ✓ 发送成功')
             success_count += 1
 
             # 避免限流
             if i < len(article_files):
-                import time
                 time.sleep(1)
 
         except Exception as e:
