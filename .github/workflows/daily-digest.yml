@@ -62,6 +62,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           CLAUDE_BASE_URL: ${{ secrets.CLAUDE_BASE_URL }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
+          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SKILL_MODULE: ${{ github.event.inputs.module }}
