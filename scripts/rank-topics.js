@@ -12,6 +12,9 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { callClaudeWithFallback, callGeminiWithFallback } from './llm-fallback.js';
+import { extractJSONFromText } from './json-utils.js';
+import { getRunDate } from './runtime-context.js';
 
 dotenv.config();
 
@@ -22,10 +25,6 @@ const INPUT_DIR = join(__dirname, '..', 'data', 'clustered');
 const OUTPUT_DIR = join(__dirname, '..', 'data', 'ranked');
 const CONFIG_PATH = join(__dirname, '..', 'config', 'ranking-prompts.json');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
-const CLAUDE_BASE_URL = process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com';
-
 // 禁用不稳定的 Gemini API
 const USE_GEMINI = false;
 
@@ -33,63 +32,6 @@ const USE_GEMINI = false;
 
 async function loadConfig() {
   return JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
-}
-
-// -- Call Gemini API ---------------------------------------------------------
-
-async function callGemini(prompt) {
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{ text: prompt }]
-      }]
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API error: ${response.statusText} - ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
-}
-
-// -- Call Claude API ---------------------------------------------------------
-
-async function callClaude(prompt) {
-  const response = await fetch(`${CLAUDE_BASE_URL}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': CLAUDE_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-20250514',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.content[0].text;
-}
-
-// -- Extract JSON from response ----------------------------------------------
-
-function extractJSON(text) {
-  const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('无法从响应中提取 JSON');
-  }
-  return JSON.parse(jsonMatch[1] || jsonMatch[0]);
 }
 
 // -- Gemini Score ------------------------------------------------------------
@@ -103,8 +45,11 @@ async function geminiScore(topic, config) {
     .replace('{{article_count}}', topic.文章数)
     .replace('{{article_titles}}', articleTitles);
 
-  const response = await callGemini(prompt);
-  return extractJSON(response);
+  const response = await callGeminiWithFallback(prompt, {
+    model: 'gemini-2.5-flash',
+    maxTokens: 2048
+  });
+  return extractJSONFromText(response);
 }
 
 // -- Claude Score ------------------------------------------------------------
@@ -119,8 +64,11 @@ async function claudeScore(topic, geminiResult, config) {
     .replace('{{article_titles}}', articleTitles)
     .replace('{{gemini_result}}', JSON.stringify(geminiResult, null, 2));
 
-  const response = await callClaude(prompt);
-  return extractJSON(response);
+  const response = await callClaudeWithFallback(prompt, {
+    model: 'claude-opus-4-20250514',
+    maxTokens: 4096
+  });
+  return extractJSONFromText(response);
 }
 
 // -- Claude Final Decision ---------------------------------------------------
@@ -139,8 +87,11 @@ async function claudeFinalDecision(topics, geminiScores, claudeScores, config) {
     .replace('{{topic_count}}', topics.length)
     .replace('{{topics_with_scores}}', JSON.stringify(topicsWithScores, null, 2));
 
-  const response = await callClaude(prompt);
-  return extractJSON(response);
+  const response = await callClaudeWithFallback(prompt, {
+    model: 'claude-opus-4-20250514',
+    maxTokens: 4096
+  });
+  return extractJSONFromText(response);
 }
 
 // -- Main --------------------------------------------------------------------
@@ -154,7 +105,7 @@ async function main() {
   console.log('📋 配置加载完成');
 
   // 2. 读取模块2的输出
-  const today = new Date().toISOString().split('T')[0];
+  const today = getRunDate();
   const inputPath = join(INPUT_DIR, `clustered-${today}.json`);
 
   console.log(`📂 读取数据: ${inputPath}`);

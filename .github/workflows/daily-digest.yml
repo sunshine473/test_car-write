@@ -4,7 +4,20 @@ on:
   schedule:
     # 每天北京时间 8:00 运行（UTC 0:00）
     - cron: '0 0 * * *'
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      module:
+        description: '要运行的模块'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - feed
+          - cluster
+          - rank
+          - write
+          - deliver
 
 permissions:
   contents: write
@@ -12,6 +25,9 @@ permissions:
 jobs:
   generate-and-deliver:
     runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+      RUN_TIMEZONE: Asia/Shanghai
 
     steps:
       - name: Checkout repository
@@ -40,7 +56,7 @@ jobs:
           test -n "$TELEGRAM_BOT_TOKEN" || (echo "❌ Missing TELEGRAM_BOT_TOKEN" && exit 1)
           test -n "$TELEGRAM_CHAT_ID" || (echo "❌ Missing TELEGRAM_CHAT_ID" && exit 1)
 
-      - name: Run complete pipeline
+      - name: Run car-content skill
         env:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -48,32 +64,20 @@ jobs:
           CLAUDE_BASE_URL: ${{ secrets.CLAUDE_BASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SKILL_MODULE: ${{ github.event.inputs.module }}
         run: |
-          echo "🚗 Starting Car Content Curator Pipeline"
-          echo "========================================"
+          set -euo pipefail
+          MODULE="${SKILL_MODULE:-all}"
+
+          echo "🚗 Starting Car Content Curator Skill"
+          echo "===================================="
+          echo "Module: ${MODULE}"
+
+          chmod +x ./.claude/skills/car-content-producer/run.sh
+          ./.claude/skills/car-content-producer/run.sh "${MODULE}"
 
           echo ""
-          echo "📡 Module 1: Generate Feed"
-          npm run feed || echo "⚠️ Module 1 failed, continuing..."
-
-          echo ""
-          echo "📦 Module 2: Cluster Topics"
-          npm run cluster || echo "⚠️ Module 2 failed, continuing..."
-
-          echo ""
-          echo "🏆 Module 3: Rank Topics"
-          npm run rank || echo "⚠️ Module 3 failed, continuing..."
-
-          echo ""
-          echo "📝 Module 4: Write Articles"
-          npm run write || echo "⚠️ Module 4 failed, continuing..."
-
-          echo ""
-          echo "📤 Module 5: Deliver to Telegram"
-          npm run deliver
-
-          echo ""
-          echo "✅ Pipeline completed"
+          echo "✅ Skill completed"
 
       - name: Upload artifacts
         if: always()
@@ -85,6 +89,7 @@ jobs:
             data/clustered/*.json
             data/ranked/*.json
             data/articles/*.json
+            state/state-feed.json
           retention-days: 7
 
       - name: Commit and push generated data
@@ -94,6 +99,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add data/
+          git add -f state/state-feed.json || true
           if git diff --quiet && git diff --staged --quiet; then
             echo "ℹ️ No generated data changes to commit"
           else

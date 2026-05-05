@@ -11,6 +11,9 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { callClaudeWithFallback } from './llm-fallback.js';
+import { extractJSONFromText } from './json-utils.js';
+import { getRunDate } from './runtime-context.js';
 
 dotenv.config();
 
@@ -19,39 +22,6 @@ dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INPUT_DIR = join(__dirname, '..', 'data', 'feeds');
 const OUTPUT_DIR = join(__dirname, '..', 'data', 'clustered');
-
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
-const CLAUDE_BASE_URL = process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com';
-
-// -- Call Claude API ---------------------------------------------------------
-
-async function callClaude(prompt) {
-  const response = await fetch(`${CLAUDE_BASE_URL}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': CLAUDE_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-20250514',
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.content[0].text;
-}
 
 // -- Deduplicate and Cluster -------------------------------------------------
 
@@ -111,16 +81,12 @@ ${JSON.stringify(simplifiedArticles, null, 2)}
 }
 \`\`\``;
 
-  const response = await callClaude(prompt);
+  const response = await callClaudeWithFallback(prompt, {
+    model: 'claude-opus-4-20250514',
+    maxTokens: 4096
+  });
 
-  // 提取 JSON（去掉可能的 markdown 代码块）
-  const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Claude 返回的格式不正确');
-  }
-
-  const result = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-  return result;
+  return extractJSONFromText(response);
 }
 
 // -- Main --------------------------------------------------------------------
@@ -130,7 +96,7 @@ async function main() {
   console.log('==================================================\n');
 
   // 1. 读取模块1的输出
-  const today = new Date().toISOString().split('T')[0];
+  const today = getRunDate();
   const inputPath = join(INPUT_DIR, `feed-${today}.json`);
 
   console.log(`📂 读取数据: ${inputPath}`);
