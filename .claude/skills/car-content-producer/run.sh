@@ -10,6 +10,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 cd "$PROJECT_DIR"
 
+export RUN_TIMEZONE="${RUN_TIMEZONE:-Asia/Shanghai}"
+export TZ="${TZ:-$RUN_TIMEZONE}"
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -33,6 +36,59 @@ log_warning() {
     echo -e "${YELLOW}⚠${NC} $1"
 }
 
+has_config_value() {
+    local key=$1
+
+    if [ -n "${!key:-}" ]; then
+        return 0
+    fi
+
+    if [ -f ".env" ] && grep -Eq "^[[:space:]]*${key}=" .env; then
+        return 0
+    fi
+
+    return 1
+}
+
+validate_runtime_config() {
+    local module=$1
+    local missing=()
+
+    case "$module" in
+        feed)
+            has_config_value "TAVILY_API_KEY" || missing+=("TAVILY_API_KEY")
+            ;;
+        cluster)
+            has_config_value "CLAUDE_API_KEY" || has_config_value "MINIMAX_API_KEY" || missing+=("CLAUDE_API_KEY or MINIMAX_API_KEY")
+            ;;
+        rank)
+            has_config_value "CLAUDE_API_KEY" || has_config_value "MINIMAX_API_KEY" || missing+=("CLAUDE_API_KEY or MINIMAX_API_KEY")
+            ;;
+        write)
+            has_config_value "TAVILY_API_KEY" || missing+=("TAVILY_API_KEY")
+            has_config_value "CLAUDE_API_KEY" || has_config_value "MINIMAX_API_KEY" || missing+=("CLAUDE_API_KEY or MINIMAX_API_KEY")
+            has_config_value "GEMINI_API_KEY" || has_config_value "MINIMAX_API_KEY" || missing+=("GEMINI_API_KEY or MINIMAX_API_KEY")
+            ;;
+        deliver)
+            has_config_value "TELEGRAM_BOT_TOKEN" || missing+=("TELEGRAM_BOT_TOKEN")
+            has_config_value "TELEGRAM_CHAT_ID" || missing+=("TELEGRAM_CHAT_ID")
+            ;;
+        all)
+            has_config_value "TAVILY_API_KEY" || missing+=("TAVILY_API_KEY")
+            has_config_value "CLAUDE_API_KEY" || has_config_value "MINIMAX_API_KEY" || missing+=("CLAUDE_API_KEY or MINIMAX_API_KEY")
+            has_config_value "GEMINI_API_KEY" || has_config_value "MINIMAX_API_KEY" || missing+=("GEMINI_API_KEY or MINIMAX_API_KEY")
+            has_config_value "TELEGRAM_BOT_TOKEN" || missing+=("TELEGRAM_BOT_TOKEN")
+            has_config_value "TELEGRAM_CHAT_ID" || missing+=("TELEGRAM_CHAT_ID")
+            ;;
+    esac
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        log_error "缺少运行配置: ${missing[*]}"
+        log_info "可通过环境变量或 .env 提供配置"
+        exit 1
+    fi
+}
+
 # 检查依赖
 check_dependencies() {
     log_info "检查依赖..."
@@ -48,8 +104,7 @@ check_dependencies() {
     fi
 
     if [ ! -f ".env" ]; then
-        log_error ".env 文件不存在，请先配置 API Keys"
-        exit 1
+        log_warning ".env 文件不存在，将直接使用当前环境变量"
     fi
 
     log_success "依赖检查完成"
@@ -81,6 +136,7 @@ main() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     check_dependencies
+    validate_runtime_config "$module"
 
     case "$module" in
         feed)

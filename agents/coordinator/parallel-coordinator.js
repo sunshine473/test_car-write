@@ -11,6 +11,7 @@ import { readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { getRunDate, writeArticleBatch } from '../../scripts/article-batch.js';
 
 dotenv.config();
 
@@ -261,7 +262,7 @@ class ParallelCoordinator {
       }
 
       // 读取 Top 3 话题
-      const today = new Date().toISOString().split('T')[0];
+      const today = getRunDate();
       const rankedPath = join(PROJECT_ROOT, 'data', 'ranked', `ranked-${today}.json`);
       const rankedData = JSON.parse(await readFile(rankedPath, 'utf-8'));
       const topTopics = rankedData.推荐列表;
@@ -295,6 +296,24 @@ class ParallelCoordinator {
       if (successCount === 0) {
         throw new Error('所有 Writer Agent 都失败了');
       }
+
+      const generatedArticleFiles = this.results.writers
+        .filter(w => w.success && w.args && w.args.length > 0)
+        .map(w => join(PROJECT_ROOT, 'data', 'articles', `article-${w.args[0]}-${today}.json`));
+
+      const { batchPath } = await writeArticleBatch({
+        date: today,
+        articleFiles: generatedArticleFiles,
+        sourcePath: rankedPath,
+        mode: 'parallel',
+        metadata: {
+          计划话题数: topTopics.length,
+          成功文章数: generatedArticleFiles.length,
+          失败Writer数: this.results.writers.length - generatedArticleFiles.length
+        }
+      });
+
+      console.log(`\n📦 本次文章清单已保存: ${batchPath}`);
 
       // 阶段5: Publisher
       this.results.publisher = await this.spawnAgent('publisher');

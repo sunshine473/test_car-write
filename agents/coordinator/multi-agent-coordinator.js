@@ -12,6 +12,7 @@ import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { getRunDate } from '../../scripts/runtime-context.js';
 
 dotenv.config();
 
@@ -72,7 +73,7 @@ export class CoordinatorAgent {
       console.log('-'.repeat(80));
 
       // 读取抓取的数据
-      const date = new Date().toISOString().split('T')[0];
+      const date = getRunDate();
       const feedPath = join(PROJECT_ROOT, 'data', 'feeds', `feed-${date}.json`);
       const feedData = JSON.parse(await readFile(feedPath, 'utf-8'));
 

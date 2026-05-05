@@ -5,11 +5,15 @@ import os
 import json
 import requests
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # 配置
-ENV_PATH = Path(__file__).parent.parent / '.env'
-ARTICLES_DIR = Path(__file__).parent.parent / 'data' / 'articles'
+PROJECT_ROOT = Path(__file__).parent.parent
+ENV_PATH = PROJECT_ROOT / '.env'
+ARTICLES_DIR = PROJECT_ROOT / 'data' / 'articles'
+RUN_TIMEZONE = os.getenv('RUN_TIMEZONE') or os.getenv('TZ') or 'Asia/Shanghai'
 
 def load_local_env():
     """当环境变量未注入时，从 .env 补齐。"""
@@ -50,6 +54,7 @@ def format_article(article, rank):
     """格式化完整文章。使用纯文本，规避 Telegram MarkdownV2 转义问题。"""
     title = article.get('通用版本', {}).get('标题', '无标题')
     topic = article.get('话题', '未知话题')
+    run_date = article.get('运行日期') or article.get('生成时间', '')[:10] or '未知日期'
     word_count = article.get('通用版本', {}).get('字数', 0)
     material_count = article.get('素材统计', {}).get('总计', 0)
     content = article.get('通用版本', {}).get('正文', '')
@@ -77,6 +82,7 @@ def format_article(article, rank):
     return f"""🏆 今日推荐 #{rank}
 
 📌 话题：{topic}
+📅 日期：{run_date}
 
 ━━━━━━━━━━━━━━━━
 
@@ -145,6 +151,32 @@ def send_article(article, rank):
         if index < len(chunks):
             time.sleep(0.5)
 
+def get_today_str():
+    try:
+        return datetime.now(ZoneInfo(RUN_TIMEZONE)).strftime('%Y-%m-%d')
+    except Exception:
+        return time.strftime('%Y-%m-%d')
+
+def load_article_files():
+    today = get_today_str()
+    batch_path = ARTICLES_DIR / f'batch-{today}.json'
+
+    if not batch_path.exists():
+        raise FileNotFoundError(f'没有找到本次文章清单: {batch_path}')
+
+    batch = json.loads(batch_path.read_text(encoding='utf-8'))
+    article_files = batch.get('文章文件', [])
+
+    if not article_files:
+        raise ValueError(f'本次文章清单为空: {batch_path}')
+
+    resolved_files = []
+    for article_file in article_files:
+        path = Path(article_file)
+        resolved_files.append(path if path.is_absolute() else PROJECT_ROOT / path)
+
+    return batch_path, resolved_files
+
 def main():
     print('🚗 Car Content Curator - Telegram Delivery')
     print('=' * 50)
@@ -156,14 +188,15 @@ def main():
         print('   请设置 TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID')
         return 1
 
-    # 读取文章
-    article_files = list(ARTICLES_DIR.glob('*.json'))
-
-    if not article_files:
-        print('❌ 没有找到文章文件')
+    # 读取本次批次文章
+    try:
+        batch_path, article_files = load_article_files()
+    except Exception as exc:
+        print(f'❌ {exc}')
         return 1
 
-    print(f'📂 找到 {len(article_files)} 篇文章\n')
+    print(f'📦 使用文章清单: {batch_path}')
+    print(f'📂 找到 {len(article_files)} 篇本次文章\n')
 
     # 发送每篇文章
     success_count = 0

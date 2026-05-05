@@ -11,6 +11,7 @@ import { readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { getRunDate } from '../../scripts/runtime-context.js';
 
 dotenv.config();
 
@@ -232,7 +233,7 @@ class CoordinatorAgent {
       }
 
       // 读取 Top 3 话题
-      const today = new Date().toISOString().split('T')[0];
+      const today = getRunDate();
       const rankedPath = join(PROJECT_ROOT, 'data', 'ranked', `ranked-${today}.json`);
       const rankedData = JSON.parse(await readFile(rankedPath, 'utf-8'));
       const topTopics = rankedData.推荐列表;

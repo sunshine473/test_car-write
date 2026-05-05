@@ -11,6 +11,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { getRunDate, getRunYear } from '../../scripts/runtime-context.js';
 
 dotenv.config();
 
@@ -91,7 +92,7 @@ async function searchTavilyDeep(topic, keywords = []) {
 
   const queries = [
     topic,
-    ...keywords.slice(0, 2).map(k => `${k} 2026`),
+    ...keywords.slice(0, 2).map(k => `${k} ${getRunYear()}`),
     `${topic} 最新消息`
   ];
 
@@ -187,7 +188,7 @@ ${materialsText}
 }
 
 async function saveArticle(topic, article) {
-  const date = new Date().toISOString().split('T')[0];
+  const date = getRunDate();
   const outputDir = join(PROJECT_ROOT, 'data', 'articles');
   const topicId = topic.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
   const outputPath = join(outputDir, `article-${topicId}-${date}.json`);

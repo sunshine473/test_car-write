@@ -13,6 +13,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { chromium } from 'playwright';
 import dotenv from 'dotenv';
+import { getRunDate, getRunDateWithOffset } from './runtime-context.js';
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOOKBACK_HOURS = 24;
+const DEDUPLICATION_WINDOW_DAYS = 7;
 const STATE_PATH = join(__dirname, '..', 'state', 'state-feed.json');
 const CONFIG_PATH = join(__dirname, '..', 'config', 'car-sources.json');
 const OUTPUT_DIR = join(__dirname, '..', 'data', 'feeds');
@@ -40,7 +42,7 @@ async function loadState() {
 }
 
 async function saveState(state) {
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - DEDUPLICATION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   for (const [id, ts] of Object.entries(state.seenArticles)) {
     if (ts < cutoff) delete state.seenArticles[id];
   }
@@ -52,6 +54,111 @@ async function saveState(state) {
 
 async function loadSources() {
   return JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
+}
+
+function parseDongchediPublishTimeText(text) {
+  if (!text) {
+    return null;
+  }
+
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const now = new Date();
+  let match = normalized.match(/(\d+)\s*分钟前/);
+  if (match) {
+    return new Date(now.getTime() - Number(match[1]) * 60 * 1000);
+  }
+
+  match = normalized.match(/(\d+)\s*小时前/);
+  if (match) {
+    return new Date(now.getTime() - Number(match[1]) * 60 * 60 * 1000);
+  }
+
+  match = normalized.match(/(\d+)\s*天前/);
+  if (match) {
+    return new Date(now.getTime() - Number(match[1]) * 24 * 60 * 60 * 1000);
+  }
+
+  if (normalized.includes('刚刚')) {
+    return now;
+  }
+
+  match = normalized.match(/今天\s*(\d{1,2}):(\d{2})/);
+  if (match) {
+    return new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      Number(match[1]),
+      Number(match[2]),
+      0,
+      0
+    );
+  }
+
+  match = normalized.match(/昨天(?:\s*(\d{1,2}):(\d{2}))?/);
+  if (match) {
+    return new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 1,
+      match[1] ? Number(match[1]) : now.getHours(),
+      match[2] ? Number(match[2]) : now.getMinutes(),
+      0,
+      0
+    );
+  }
+
+  match = normalized.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?(?:\s*(\d{1,2}):(\d{2}))?/);
+  if (match) {
+    return new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      match[4] ? Number(match[4]) : 12,
+      match[5] ? Number(match[5]) : 0,
+      0,
+      0
+    );
+  }
+
+  match = normalized.match(/(\d{1,2})[-/.月](\d{1,2})日?(?:\s*(\d{1,2}):(\d{2}))?/);
+  if (match) {
+    return new Date(
+      now.getFullYear(),
+      Number(match[1]) - 1,
+      Number(match[2]),
+      match[3] ? Number(match[3]) : 12,
+      match[4] ? Number(match[4]) : 0,
+      0,
+      0
+    );
+  }
+
+  return null;
+}
+
+function resolveDongchediPublishTime(item) {
+  const candidates = [item.发布时间文本, item.卡片文本]
+    .filter(Boolean)
+    .flatMap(text => text.split('\n'))
+    .map(text => text.trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const parsed = parseDongchediPublishTimeText(candidate);
+    if (parsed) {
+      return {
+        发布时间: parsed.toISOString(),
+        发布时间文本: candidate
+      };
+    }
+  }
+
+  return null;
 }
 
 // -- Fetch Dongchedi Creator (Playwright) ------------------------------------
@@ -98,6 +205,9 @@ async function fetchDongchediCreator(creator, browser) {
         const card = a.closest('.community-card, [class*="card"]');
         const titleEl = card?.querySelector('h3, h2, .title, [class*="title"]');
         const title = titleEl?.textContent.trim() || a.textContent.trim();
+        const publishEl = card?.querySelector('time, [datetime], .time, [class*="time"], [class*="date"], [class*="publish"]');
+        const publishText = publishEl?.textContent?.trim() || '';
+        const cardText = card?.innerText?.trim() || '';
 
         if (title.length > 5) {
           const id = url.split('/').pop().split('?')[0];
@@ -108,11 +218,13 @@ async function fetchDongchediCreator(creator, browser) {
             来源: creatorData.name,
             来源类型: '懂车帝创作者',
             来源ID: creatorData.userId,
-            发布时间: new Date().toISOString(),
+            发布时间: '',
+            发布时间文本: publishText,
             内容摘要: '',
             热度指数: 0.8,
             媒体类型: url.includes('/video/') ? 'video' : 'text',
-            关键词: []
+            关键词: [],
+            卡片文本: cardText
           });
         }
       });
@@ -121,8 +233,36 @@ async function fetchDongchediCreator(creator, browser) {
     }, { name: creator.name, userId: creator.userId });
 
     await context.close();
-    console.log(`   ✓ ${creator.name}: ${items.length} 条`);
-    return items;
+
+    const cutoff = Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000;
+    let skippedUnknown = 0;
+    let skippedStale = 0;
+    const freshItems = [];
+
+    for (const item of items) {
+      const resolvedPublishTime = resolveDongchediPublishTime(item);
+      delete item.卡片文本;
+
+      if (!resolvedPublishTime) {
+        skippedUnknown++;
+        continue;
+      }
+
+      item.发布时间 = resolvedPublishTime.发布时间;
+      item.发布时间文本 = resolvedPublishTime.发布时间文本;
+
+      if (Date.parse(item.发布时间) < cutoff) {
+        skippedStale++;
+        continue;
+      }
+
+      freshItems.push(item);
+    }
+
+    console.log(
+      `   ✓ ${creator.name}: ${freshItems.length} 条 (原始 ${items.length}, 过旧 ${skippedStale}, 未识别时间 ${skippedUnknown})`
+    );
+    return freshItems;
 
   } catch (err) {
     console.log(`   ✗ ${creator.name}: ${err.message}`);
@@ -161,7 +301,7 @@ async function searchTavily(query) {
       来源: new URL(item.url).hostname,
       来源类型: 'Tavily搜索',
       来源ID: query.query,
-      发布时间: new Date().toISOString(),
+      发布时间: item.published_date || item.publishedDate || item.publish_date || new Date().toISOString(),
       内容摘要: item.content || '',
       热度指数: 0.5,
       媒体类型: 'text',
@@ -233,8 +373,8 @@ async function main() {
 
     // 4. Tavily搜索
     console.log('\n2️⃣  Tavily 搜索:');
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const today = getRunDate();
+    const yesterday = getRunDateWithOffset(-1);
 
     // 动态生成搜索词（带日期）
     const tavilyQueries = [
@@ -272,8 +412,8 @@ async function main() {
   // 7. 去重（改进版）
   console.log('\n🔄 去重处理...');
 
-  // 7.1 清理旧的历史记录（只保留最近3天）
-  const deduplicationWindow = 3 * 24 * 60 * 60 * 1000; // 3天
+  // 7.1 清理旧的历史记录
+  const deduplicationWindow = DEDUPLICATION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   const deduplicationCutoff = Date.now() - deduplicationWindow;
 
   // 清理过期的记录
@@ -283,7 +423,7 @@ async function main() {
     }
   }
 
-  console.log(`   历史记录: ${Object.keys(state.seenArticles).length} 条 (最近3天)`);
+  console.log(`   历史记录: ${Object.keys(state.seenArticles).length} 条 (最近${DEDUPLICATION_WINDOW_DAYS}天)`);
 
   // 7.2 去重
   const deduplicated = filtered.filter(item => {
@@ -336,9 +476,10 @@ async function main() {
   });
 
   // 10. 输出
-  const today = new Date().toISOString().split('T')[0];
+  const today = getRunDate();
   const output = {
     生成时间: new Date().toISOString(),
+    运行日期: today,
     时间窗口: '24h',
     总文章数: deduplicated.length,
     来源统计: sourceStats,

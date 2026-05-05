@@ -13,6 +13,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { getRunDate } from '../../scripts/runtime-context.js';
 
 dotenv.config();
 
@@ -109,7 +110,7 @@ async function searchTavily(query, maxResults = 5) {
 }
 
 async function saveFeed(articles) {
-  const date = new Date().toISOString().split('T')[0];
+  const date = getRunDate();
   const outputDir = join(PROJECT_ROOT, 'data', 'feeds');
   const outputPath = join(outputDir, `feed-${date}.json`);
 
@@ -143,7 +144,7 @@ async function saveFeed(articles) {
 }
 
 function getCurrentDate() {
-  return new Date().toISOString().split('T')[0];
+  return getRunDate();
 }
 
 // ============================================================================

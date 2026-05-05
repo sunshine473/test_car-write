@@ -11,6 +11,9 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { callClaudeWithFallback, callGeminiWithFallback } from './llm-fallback.js';
+import { extractJSONFromText } from './json-utils.js';
+import { getRunDate, getRunYear } from './runtime-context.js';
 
 dotenv.config();
 
@@ -20,9 +23,6 @@ const OUTPUT_DIR = join(__dirname, '..', 'data', 'articles');
 const CONFIG_PATH = join(__dirname, '..', 'config', 'writing-prompts.json');
 
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
-const CLAUDE_BASE_URL = process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com';
 
 // 获取命令行参数
 const topicId = process.argv[2];
@@ -42,7 +42,7 @@ async function tavilyDeepSearch(topic) {
 
   const queries = [
     topic.话题,
-    ...topic.关键词.slice(0, 2).map(k => `${k} 2026`),
+    ...topic.关键词.slice(0, 2).map(k => `${k} ${getRunYear()}`),
     `${topic.话题} 最新消息`
   ];
 
@@ -91,88 +91,6 @@ async function tavilyDeepSearch(topic) {
 
   console.log(`      ✓ 找到 ${uniqueResults.length} 篇新素材`);
   return uniqueResults;
-}
-
-async function callGemini(prompt) {
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
-}
-
-async function callClaude(prompt) {
-  const response = await fetch(`${CLAUDE_BASE_URL}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': CLAUDE_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-20250514',
-      max_tokens: 8192,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.content[0].text;
-}
-
-function extractJSON(text) {
-  // 方法1：直接解析
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    // 继续尝试其他方法
-  }
-
-  // 方法2：移除 markdown 代码块
-  let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch (err) {
-    console.log('      ⚠️  Markdown JSON解析失败，尝试其他方式...');
-  }
-
-  // 方法3：查找第一个完整的 JSON 对象
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start !== -1) {
-        try {
-          return JSON.parse(text.substring(start, i + 1));
-        } catch (err) {
-          start = -1;
-        }
-      }
-    }
-  }
-
-  // 保存原始响应用于调试
-  console.log('      ❌ 所有解析方法都失败了');
-  console.log('      📝 响应前200字符:', text.substring(0, 200));
-
-  throw new Error('无法从响应中提取有效的 JSON');
 }
 
 async function generateArticle(topic, config) {
@@ -235,14 +153,20 @@ ${materialsText}
 
   let draft;
   try {
-    const geminiResponse = await callGemini(improvedPrompt);
-    draft = extractJSON(geminiResponse);
+    const geminiResponse = await callGeminiWithFallback(improvedPrompt, {
+      model: 'gemini-2.5-flash',
+      maxTokens: 2048
+    });
+    draft = extractJSONFromText(geminiResponse);
     console.log(`      ✓ 初稿完成 (${draft.字数}字)`);
   } catch (err) {
     console.log(`      ✗ Gemini 失败: ${err.message}`);
     console.log(`      ⚠️  使用 Claude 生成初稿...`);
-    const claudeResponse = await callClaude(improvedPrompt);
-    draft = extractJSON(claudeResponse);
+    const claudeResponse = await callClaudeWithFallback(improvedPrompt, {
+      model: 'claude-opus-4-20250514',
+      maxTokens: 2048
+    });
+    draft = extractJSONFromText(claudeResponse);
     console.log(`      ✓ 初稿完成 (${draft.字数}字)`);
   }
 
@@ -251,8 +175,11 @@ ${materialsText}
   const claudePrompt = config.claude_polish_prompt
     .replace('{{gemini_draft}}', JSON.stringify(draft, null, 2));
 
-  const polishedResponse = await callClaude(claudePrompt);
-  const polished = extractJSON(polishedResponse);
+  const polishedResponse = await callClaudeWithFallback(claudePrompt, {
+    model: 'claude-opus-4-20250514',
+    maxTokens: 2048
+  });
+  const polished = extractJSONFromText(polishedResponse);
 
   console.log(`      ✓ 润色完成 (${polished.字数}字)`);
 
@@ -262,8 +189,11 @@ ${materialsText}
   for (const [platformName, platformConfig] of Object.entries(config.platform_prompts)) {
     try {
       const platformPrompt = platformConfig.prompt.replace('{{article}}', polished.正文);
-      const platformResponse = await callClaude(platformPrompt);
-      const platformArticle = extractJSON(platformResponse);
+      const platformResponse = await callClaudeWithFallback(platformPrompt, {
+        model: 'claude-opus-4-20250514',
+        maxTokens: 2048
+      });
+      const platformArticle = extractJSONFromText(platformResponse);
       platforms[platformName] = platformArticle;
       console.log(`      ✓ ${platformName}: ${platformArticle.字数}字`);
     } catch (err) {
@@ -304,7 +234,7 @@ async function main() {
 
   const config = await loadConfig();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getRunDate();
   const inputPath = join(INPUT_DIR, `ranked-${today}.json`);
 
   const rankedData = JSON.parse(await readFile(inputPath, 'utf-8'));
@@ -315,6 +245,7 @@ async function main() {
   }
 
   const article = await generateArticle(topic, config);
+  article.运行日期 = today;
 
   await mkdir(OUTPUT_DIR, { recursive: true });
   const outputPath = join(OUTPUT_DIR, `article-${topic.话题ID}-${today}.json`);
