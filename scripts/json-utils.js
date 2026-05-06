@@ -107,19 +107,46 @@ function parseCandidate(candidate) {
   return JSON.parse(normalized);
 }
 
+function unwrapNestedJson(value, depth = 0) {
+  if (depth >= 3 || typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+
+  const startsLikeJson =
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('```') ||
+    /^json\s*/i.test(trimmed);
+
+  if (!startsLikeJson) {
+    return value;
+  }
+
+  try {
+    return unwrapNestedJson(parseCandidate(trimmed), depth + 1);
+  } catch {
+    return value;
+  }
+}
+
 export function extractJSONFromText(text) {
   const candidates = getCandidateBlocks(text);
 
   for (const candidate of candidates) {
     try {
-      return parseCandidate(candidate);
+      return unwrapNestedJson(parseCandidate(candidate));
     } catch {
       // Try next candidate.
     }
   }
 
   try {
-    return parseCandidate(text);
+    return unwrapNestedJson(parseCandidate(text));
   } catch {
     throw new Error('无法从响应中提取有效的 JSON');
   }

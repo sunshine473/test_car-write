@@ -52,7 +52,13 @@ function getResultCandidates(result) {
 
     for (const key of wrapperKeys) {
       const wrapped = current[key];
-      if (wrapped && typeof wrapped === 'object') {
+      if (typeof wrapped === 'string') {
+        try {
+          queue.push(JSON.parse(wrapped));
+        } catch {
+          // Ignore non-JSON wrapper strings.
+        }
+      } else if (wrapped && typeof wrapped === 'object') {
         queue.push(wrapped);
       }
     }
@@ -160,6 +166,34 @@ function normalizeClusterResult(result) {
   };
 }
 
+function buildClusterSchemaPrompt(text) {
+  return `请把下面这段内容整理成一个严格合法的 JSON 对象，并且只返回 JSON 本身，不要添加任何解释或 Markdown。
+
+必须严格使用以下字段名：
+{
+  "去重后的文章索引": [0, 2, 5],
+  "话题分组": [
+    {
+      "主话题": "示例话题",
+      "关键词": ["关键词1", "关键词2"],
+      "文章索引": [0, 2]
+    }
+  ]
+}
+
+要求：
+1. 顶层必须是对象
+2. "去重后的文章索引" 必须是整数数组
+3. "话题分组" 必须是数组
+4. 每个话题组只能包含 "主话题"、"关键词"、"文章索引" 这三个字段
+5. 所有字段名都必须与上面的中文字段完全一致
+
+原始内容：
+<<<RAW
+${text}
+RAW>>>`;
+}
+
 // -- Deduplicate and Cluster -------------------------------------------------
 
 async function deduplicateAndCluster(articles) {
@@ -231,7 +265,17 @@ ${JSON.stringify(simplifiedArticles, null, 2)}
     repair: repairPrompt => callClaudeWithFallback(repairPrompt, modelOptions)
   });
 
-  return normalizeClusterResult(result);
+  try {
+    return normalizeClusterResult(result);
+  } catch {
+    const schemaResponse = await callClaudeWithFallback(buildClusterSchemaPrompt(response), modelOptions);
+    const schemaResult = await extractJSONWithRepair(schemaResponse, {
+      label: '汽车新闻去重聚类结果',
+      repair: repairPrompt => callClaudeWithFallback(repairPrompt, modelOptions)
+    });
+
+    return normalizeClusterResult(schemaResult);
+  }
 }
 
 // -- Main --------------------------------------------------------------------
