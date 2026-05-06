@@ -12,7 +12,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { callClaudeWithFallback } from './llm-fallback.js';
-import { extractJSONFromText } from './json-utils.js';
+import { extractJSONWithRepair, JSON_ONLY_SYSTEM_PROMPT } from './json-utils.js';
 import { getRunDate } from './runtime-context.js';
 
 dotenv.config();
@@ -22,6 +22,143 @@ dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INPUT_DIR = join(__dirname, '..', 'data', 'feeds');
 const OUTPUT_DIR = join(__dirname, '..', 'data', 'clustered');
+
+function isNumberArray(value) {
+  return Array.isArray(value) && value.every(item => Number.isInteger(item));
+}
+
+function isGroupArray(value) {
+  return Array.isArray(value) && value.every(item => item && typeof item === 'object' && !Array.isArray(item));
+}
+
+function getResultCandidates(result) {
+  const candidates = [];
+  const queue = [result];
+  const seen = new Set();
+  const wrapperKeys = ['result', 'data', 'output', 'json', '结果', '输出', '内容', 'response'];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      continue;
+    }
+
+    if (seen.has(current)) {
+      continue;
+    }
+
+    seen.add(current);
+    candidates.push(current);
+
+    for (const key of wrapperKeys) {
+      const wrapped = current[key];
+      if (wrapped && typeof wrapped === 'object') {
+        queue.push(wrapped);
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function findIndicesArray(candidates) {
+  const exactKeys = ['去重后的文章索引', '去重后的索引列表', '去重索引', 'deduplicated_indices'];
+  for (const candidate of candidates) {
+    for (const key of exactKeys) {
+      if (isNumberArray(candidate[key])) {
+        return candidate[key];
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    for (const [key, value] of Object.entries(candidate)) {
+      if (/(去重|索引)/.test(key) && isNumberArray(value)) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findGroupArray(candidates) {
+  const exactKeys = ['话题分组', '聚类结果', 'topics', 'groups'];
+  for (const candidate of candidates) {
+    for (const key of exactKeys) {
+      if (isGroupArray(candidate[key])) {
+        return candidate[key];
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    for (const [key, value] of Object.entries(candidate)) {
+      if (/(分组|聚类|话题|topic|group)/i.test(key) && isGroupArray(value)) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findGroupField(group, patterns, validator) {
+  for (const [key, value] of Object.entries(group || {})) {
+    if (patterns.some(pattern => pattern.test(key)) && validator(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function normalizeClusterGroup(group) {
+  const normalizedGroup = {
+    主话题:
+      group?.主话题 ??
+      group?.话题名称 ??
+      group?.主题 ??
+      group?.topic ??
+      findGroupField(group, [/主话题/, /话题/, /主题/, /topic/i], value => typeof value === 'string' && value.trim()),
+    关键词:
+      group?.关键词 ??
+      group?.共同关键词 ??
+      group?.keyWords ??
+      group?.keywords ??
+      findGroupField(group, [/关键词/, /key/i], value => Array.isArray(value)),
+    文章索引:
+      group?.文章索引 ??
+      group?.包含的索引 ??
+      group?.索引列表 ??
+      group?.indices ??
+      findGroupField(group, [/文章索引/, /索引/, /index/i], value => isNumberArray(value))
+  };
+
+  if (!normalizedGroup.主话题 || !Array.isArray(normalizedGroup.关键词) || !Array.isArray(normalizedGroup.文章索引)) {
+    throw new Error('聚类结果字段不完整');
+  }
+
+  return normalizedGroup;
+}
+
+function normalizeClusterResult(result) {
+  const candidates = getResultCandidates(result);
+  const groups = findGroupArray(candidates);
+  const deduplicatedIndices = findIndicesArray(candidates);
+
+  if (!Array.isArray(groups)) {
+    throw new Error('聚类结果结构不符合预期');
+  }
+
+  const normalizedGroups = groups.map(normalizeClusterGroup);
+  const fallbackIndices = [...new Set(normalizedGroups.flatMap(group => group.文章索引))].sort((a, b) => a - b);
+
+  return {
+    去重后的文章索引: Array.isArray(deduplicatedIndices) ? deduplicatedIndices : fallbackIndices,
+    话题分组: normalizedGroups
+  };
+}
 
 // -- Deduplicate and Cluster -------------------------------------------------
 
@@ -81,12 +218,20 @@ ${JSON.stringify(simplifiedArticles, null, 2)}
 }
 \`\`\``;
 
-  const response = await callClaudeWithFallback(prompt, {
+  const modelOptions = {
     model: 'claude-opus-4-20250514',
-    maxTokens: 4096
+    maxTokens: 4096,
+    system: JSON_ONLY_SYSTEM_PROMPT
+  };
+
+  const response = await callClaudeWithFallback(prompt, modelOptions);
+
+  const result = await extractJSONWithRepair(response, {
+    label: '汽车新闻去重聚类结果',
+    repair: repairPrompt => callClaudeWithFallback(repairPrompt, modelOptions)
   });
 
-  return extractJSONFromText(response);
+  return normalizeClusterResult(result);
 }
 
 // -- Main --------------------------------------------------------------------

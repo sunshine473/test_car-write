@@ -52,8 +52,37 @@ function parseGeminiText(data) {
 }
 
 function parseAnthropicStyleText(data) {
-  const block = data?.content?.find(item => item.type === 'text');
-  return block?.text;
+  const contentBlocks = Array.isArray(data?.content) ? data.content : [];
+  const textBlocks = contentBlocks
+    .map(item => item?.text)
+    .filter(text => typeof text === 'string' && text.trim());
+
+  if (textBlocks.length > 0) {
+    return textBlocks.join('\n').trim();
+  }
+
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const choiceContent = data?.choices?.[0]?.message?.content;
+  if (typeof choiceContent === 'string' && choiceContent.trim()) {
+    return choiceContent.trim();
+  }
+
+  if (Array.isArray(choiceContent)) {
+    const choiceText = choiceContent
+      .map(item => item?.text)
+      .filter(text => typeof text === 'string' && text.trim())
+      .join('\n')
+      .trim();
+
+    if (choiceText) {
+      return choiceText;
+    }
+  }
+
+  return '';
 }
 
 function hasMiniMaxConfig() {
@@ -178,31 +207,40 @@ export async function callMiniMax(prompt, {
   let lastError = null;
 
   for (const baseUrl of baseUrls) {
-    const response = await fetch(`${baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(body)
-    });
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
 
-    if (!response.ok) {
-      lastError = new ProviderHttpError('MiniMax', response.status, response.statusText, await parseErrorBody(response));
-      const shouldTryNext = !getMiniMaxBaseUrl() && baseUrls.indexOf(baseUrl) < baseUrls.length - 1;
-      if (shouldTryNext) {
+      if (!response.ok) {
+        lastError = new ProviderHttpError('MiniMax', response.status, response.statusText, await parseErrorBody(response));
+        const shouldTryNextBaseUrl = !getMiniMaxBaseUrl() && baseUrls.indexOf(baseUrl) < baseUrls.length - 1;
+        if (shouldTryNextBaseUrl) {
+          break;
+        }
+        throw lastError;
+      }
+
+      const data = await response.json();
+      const text = parseAnthropicStyleText(data);
+      if (text) {
+        return text;
+      }
+
+      lastError = new Error('MiniMax 返回内容为空');
+
+      if (attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
         continue;
       }
+
       throw lastError;
     }
-
-    const data = await response.json();
-    const text = parseAnthropicStyleText(data);
-    if (!text) {
-      throw new Error('MiniMax 返回内容为空');
-    }
-
-    return text;
   }
 
   throw lastError || new Error('MiniMax 请求失败');

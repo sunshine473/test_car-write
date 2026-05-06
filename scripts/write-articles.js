@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { getRunDate, writeArticleBatch } from './article-batch.js';
 import { callClaudeWithFallback, callGeminiWithFallback } from './llm-fallback.js';
-import { extractJSONFromText } from './json-utils.js';
+import { extractJSONWithRepair, JSON_ONLY_SYSTEM_PROMPT } from './json-utils.js';
 import { getRunYear } from './runtime-context.js';
 
 dotenv.config();
@@ -31,6 +31,17 @@ const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
 
 async function loadConfig() {
   return JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
+}
+
+async function parseStructuredResponse(response, label, maxTokens = 2048) {
+  return extractJSONWithRepair(response, {
+    label,
+    repair: repairPrompt => callClaudeWithFallback(repairPrompt, {
+      model: 'claude-opus-4-20250514',
+      maxTokens,
+      system: JSON_ONLY_SYSTEM_PROMPT
+    })
+  });
 }
 
 // -- Tavily Deep Search ------------------------------------------------------
@@ -125,18 +136,20 @@ async function generateArticle(topic, config) {
   try {
     const geminiResponse = await callGeminiWithFallback(geminiPrompt, {
       model: 'gemini-2.5-flash',
-      maxTokens: 2048
+      maxTokens: 2048,
+      system: JSON_ONLY_SYSTEM_PROMPT
     });
-    draft = extractJSONFromText(geminiResponse);
+    draft = await parseStructuredResponse(geminiResponse, `${topic.话题} 的文章初稿`);
     console.log(`      ✓ 初稿完成 (${draft.字数}字)`);
   } catch (err) {
     console.log(`      ✗ Gemini 失败: ${err.message}`);
     console.log(`      ⚠️  使用 Claude 生成初稿...`);
     const claudeResponse = await callClaudeWithFallback(geminiPrompt, {
       model: 'claude-opus-4-20250514',
-      maxTokens: 2048
+      maxTokens: 2048,
+      system: JSON_ONLY_SYSTEM_PROMPT
     });
-    draft = extractJSONFromText(claudeResponse);
+    draft = await parseStructuredResponse(claudeResponse, `${topic.话题} 的文章初稿`);
     console.log(`      ✓ 初稿完成 (${draft.字数}字)`);
   }
 
@@ -148,9 +161,10 @@ async function generateArticle(topic, config) {
 
   const polishedResponse = await callClaudeWithFallback(claudePrompt, {
     model: 'claude-opus-4-20250514',
-    maxTokens: 2048
+    maxTokens: 2048,
+    system: JSON_ONLY_SYSTEM_PROMPT
   });
-  const polished = extractJSONFromText(polishedResponse);
+  const polished = await parseStructuredResponse(polishedResponse, `${topic.话题} 的润色文章`);
 
   console.log(`      ✓ 润色完成 (${polished.字数}字)`);
 
@@ -163,9 +177,13 @@ async function generateArticle(topic, config) {
       const platformPrompt = platformConfig.prompt.replace('{{article}}', polished.正文);
       const platformResponse = await callClaudeWithFallback(platformPrompt, {
         model: 'claude-opus-4-20250514',
-        maxTokens: 2048
+        maxTokens: 2048,
+        system: JSON_ONLY_SYSTEM_PROMPT
       });
-      const platformArticle = extractJSONFromText(platformResponse);
+      const platformArticle = await parseStructuredResponse(
+        platformResponse,
+        `${topic.话题} 的 ${platformName} 平台版本`
+      );
       platforms[platformName] = platformArticle;
       console.log(`      ✓ ${platformName}: ${platformArticle.字数}字`);
     } catch (err) {

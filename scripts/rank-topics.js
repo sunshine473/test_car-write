@@ -13,7 +13,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { callClaudeWithFallback, callGeminiWithFallback } from './llm-fallback.js';
-import { extractJSONFromText } from './json-utils.js';
+import { extractJSONWithRepair, JSON_ONLY_SYSTEM_PROMPT } from './json-utils.js';
 import { getRunDate } from './runtime-context.js';
 
 dotenv.config();
@@ -34,6 +34,17 @@ async function loadConfig() {
   return JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
 }
 
+async function parseStructuredResponse(response, label, maxTokens = 2048) {
+  return extractJSONWithRepair(response, {
+    label,
+    repair: repairPrompt => callClaudeWithFallback(repairPrompt, {
+      model: 'claude-opus-4-20250514',
+      maxTokens,
+      system: JSON_ONLY_SYSTEM_PROMPT
+    })
+  });
+}
+
 // -- Gemini Score ------------------------------------------------------------
 
 async function geminiScore(topic, config) {
@@ -47,9 +58,10 @@ async function geminiScore(topic, config) {
 
   const response = await callGeminiWithFallback(prompt, {
     model: 'gemini-2.5-flash',
-    maxTokens: 2048
+    maxTokens: 2048,
+    system: JSON_ONLY_SYSTEM_PROMPT
   });
-  return extractJSONFromText(response);
+  return parseStructuredResponse(response, `${topic.主话题} 的初评结果`);
 }
 
 // -- Claude Score ------------------------------------------------------------
@@ -66,9 +78,10 @@ async function claudeScore(topic, geminiResult, config) {
 
   const response = await callClaudeWithFallback(prompt, {
     model: 'claude-opus-4-20250514',
-    maxTokens: 4096
+    maxTokens: 4096,
+    system: JSON_ONLY_SYSTEM_PROMPT
   });
-  return extractJSONFromText(response);
+  return parseStructuredResponse(response, `${topic.主话题} 的复评结果`, 4096);
 }
 
 // -- Claude Final Decision ---------------------------------------------------
@@ -89,9 +102,10 @@ async function claudeFinalDecision(topics, geminiScores, claudeScores, config) {
 
   const response = await callClaudeWithFallback(prompt, {
     model: 'claude-opus-4-20250514',
-    maxTokens: 4096
+    maxTokens: 4096,
+    system: JSON_ONLY_SYSTEM_PROMPT
   });
-  return extractJSONFromText(response);
+  return parseStructuredResponse(response, '最终推荐列表', 4096);
 }
 
 // -- Main --------------------------------------------------------------------
