@@ -127,15 +127,21 @@ function parseDongchediPublishTimeText(text) {
 
   match = normalized.match(/(\d{1,2})[-/.月](\d{1,2})日?(?:\s*(\d{1,2}):(\d{2}))?/);
   if (match) {
-    return new Date(
-      now.getFullYear(),
-      Number(match[1]) - 1,
-      Number(match[2]),
-      match[3] ? Number(match[3]) : 12,
-      match[4] ? Number(match[4]) : 0,
-      0,
-      0
-    );
+    const month = Number(match[1]) - 1;
+    const day = Number(match[2]);
+    const hour = match[3] ? Number(match[3]) : 12;
+    const minute = match[4] ? Number(match[4]) : 0;
+
+    // 先尝试当前年份
+    let date = new Date(now.getFullYear(), month, day, hour, minute, 0, 0);
+
+    // 如果日期在未来（超过 7 天），说明是去年的
+    const daysDiff = (date - now) / (1000 * 60 * 60 * 24);
+    if (daysDiff > 7) {
+      date = new Date(now.getFullYear() - 1, month, day, hour, minute, 0, 0);
+    }
+
+    return date;
   }
 
   return null;
@@ -282,7 +288,7 @@ async function searchTavily(query) {
         query: query.query,
         max_results: query.maxResults || 5,
         search_depth: 'basic',
-        days: 1  // 只要最近1天
+        days: 2  // 扩大到最近2天，提高内容覆盖率
       })
     });
 
