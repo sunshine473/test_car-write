@@ -288,7 +288,7 @@ async function searchTavily(query) {
         query: query.query,
         max_results: query.maxResults || 5,
         search_depth: 'basic',
-        days: 2  // 扩大到最近2天，提高内容覆盖率
+        days: 3  // 扩大到最近3天，提高内容覆盖率
       })
     });
 
