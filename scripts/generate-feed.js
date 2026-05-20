@@ -125,12 +125,18 @@ function parseDongchediPublishTimeText(text) {
     );
   }
 
+  // 匹配 "5月3日" 或 "5-3" 格式，但要确保月份 <= 12，日期 <= 31
   match = normalized.match(/(\d{1,2})[-/.月](\d{1,2})日?(?:\s*(\d{1,2}):(\d{2}))?/);
   if (match) {
     const month = Number(match[1]) - 1;
     const day = Number(match[2]);
     const hour = match[3] ? Number(match[3]) : 12;
     const minute = match[4] ? Number(match[4]) : 0;
+
+    // 验证月份和日期的合法性
+    if (month < 0 || month > 11 || day < 1 || day > 31) {
+      return null;
+    }
 
     // 先尝试当前年份
     let date = new Date(now.getFullYear(), month, day, hour, minute, 0, 0);
