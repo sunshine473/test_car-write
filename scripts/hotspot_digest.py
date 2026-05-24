@@ -13,6 +13,10 @@ from datetime import datetime
 # 配置
 ENV_PATH = Path(__file__).parent.parent / '.env'
 FEEDS_DIR = Path(__file__).parent.parent / 'data' / 'feeds'
+TARGET_HOTSPOT_COUNT = 8
+CANDIDATE_LIMIT = 24
+MIN_ARTICLE_TEXT_LENGTH = 300
+UNSUPPORTED_ARTICLE_DOMAINS = ['youtube.com', 'youtu.be', 'qcc.com']
 
 def load_local_env():
     """加载环境变量"""
@@ -142,7 +146,7 @@ def extract_article_text(html):
     return normalize_text(' '.join(parts))
 
 def fetch_article_text(url):
-    if not url or any(domain in url for domain in ['youtube.com', 'youtu.be']):
+    if not url or any(domain in url for domain in UNSUPPORTED_ARTICLE_DOMAINS):
         return ''
 
     try:
@@ -159,7 +163,7 @@ def fetch_article_text(url):
             return ''
 
         article_text = extract_article_text(response.text)
-        if len(article_text) < 80:
+        if len(article_text) < MIN_ARTICLE_TEXT_LENGTH:
             return ''
 
         return truncate_text(article_text, 4000)
@@ -190,7 +194,7 @@ def parse_analysis(text, fallback_summary):
 def generate_analysis(title, summary="", article_text=""):
     """生成摘要和启发，确保推送不是只有链接。"""
     fallback_summary = summary or truncate_text(title, 120)
-    source_text = article_text or summary
+    source_text = article_text
     prompt = f"""你是一位资深汽车行业分析师。请基于以下热点新闻生成 Telegram 速递内容。
 
 要求：
@@ -201,7 +205,7 @@ def generate_analysis(title, summary="", article_text=""):
 启发：...
 
 热点标题：{title}
-{f'原文正文：{source_text[:3500]}' if source_text else f'内容摘要：{summary[:300]}'}
+原文正文：{source_text[:3500]}
 
 请直接输出，不要添加其他说明："""
 
@@ -209,7 +213,7 @@ def generate_analysis(title, summary="", article_text=""):
         return parse_analysis(call_claude(prompt, max_tokens=300), fallback_summary)
     except Exception as e:
         print(f"   ⚠️  摘要/启发生成失败: {e}")
-        return truncate_text(fallback_summary, 120), "值得关注的行业动态，可继续跟踪后续产品节奏、价格策略和用户反馈。"
+        return truncate_text(fallback_summary, 120), "原文解析成功但 AI 生成失败，建议人工复核正文后再提炼启发。"
 
 def send_telegram_message(text):
     """发送 Telegram 消息"""
@@ -284,29 +288,35 @@ def main():
 
     print(f'📊 找到 {len(hotspots_raw)} 条热点')
 
-    # 选择热度最高的 10-15 条
+    # 扫描候选热点，只推送抓到完整原文的内容，避免用摘要硬编启发。
     sorted_hotspots = sorted(hotspots_raw, key=lambda x: x.get('热度指数', 0), reverse=True)
-    top_hotspots = sorted_hotspots[:12]  # 取前 12 条
+    candidate_hotspots = sorted_hotspots[:CANDIDATE_LIMIT]
 
-    print(f'🎯 选择 Top {len(top_hotspots)} 条热点\n')
+    print(f'🎯 扫描 Top {len(candidate_hotspots)} 条候选，目标推送 {TARGET_HOTSPOT_COUNT} 条有完整原文的热点\n')
 
-    # 为每条热点生成点评
+    # 为每条热点生成摘要和启发
     hotspots_with_commentary = []
+    skipped_without_article = 0
 
-    for i, hotspot in enumerate(top_hotspots, 1):
+    for i, hotspot in enumerate(candidate_hotspots, 1):
+        if len(hotspots_with_commentary) >= TARGET_HOTSPOT_COUNT:
+            break
+
         title = hotspot.get('标题', '未知标题')
         link = hotspot.get('链接', '')
         summary = hotspot.get('内容摘要', '')
         display_title, digest_summary = prepare_hotspot_text(title, summary)
 
-        print(f'📖 抓取原文 {i}/{len(top_hotspots)}: {display_title[:30]}...')
+        print(f'📖 抓取原文 {i}/{len(candidate_hotspots)}: {display_title[:30]}...')
         article_text = fetch_article_text(link)
         if article_text:
             print(f'   ✓ 原文正文 {len(article_text)} 字')
         else:
-            print('   ⚠️  未抓到完整原文，降级使用摘要')
+            skipped_without_article += 1
+            print('   ⚠️  未抓到完整原文，跳过启发生成')
+            continue
 
-        print(f'💬 生成摘要/启发 {i}/{len(top_hotspots)}: {display_title[:30]}...')
+        print(f'💬 生成摘要/启发 {len(hotspots_with_commentary) + 1}/{TARGET_HOTSPOT_COUNT}: {display_title[:30]}...')
 
         digest_summary, inspiration = generate_analysis(display_title, digest_summary, article_text)
 
@@ -318,6 +328,13 @@ def main():
         })
 
         print(f'   ✓ 摘要: {digest_summary[:50]}...')
+        print(f'   ✓ 启发: {inspiration[:50]}...')
+
+    if not hotspots_with_commentary:
+        print(f'❌ 候选热点均未抓到完整原文，已跳过 {skipped_without_article} 条')
+        return 1
+
+    print(f'\n📌 原文抓取结果: 推送 {len(hotspots_with_commentary)} 条，跳过 {skipped_without_article} 条无完整原文热点')
 
     # 格式化并发送
     print(f'\n📤 发送热点速递到 Telegram...')
