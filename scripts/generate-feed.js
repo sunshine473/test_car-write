@@ -13,6 +13,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { chromium } from 'playwright';
 import dotenv from 'dotenv';
+import { createHash } from 'crypto';
 import { getRunDate, getRunDateWithOffset } from './runtime-context.js';
 
 dotenv.config();
@@ -27,6 +28,11 @@ const CONFIG_PATH = join(__dirname, '..', 'config', 'car-sources.json');
 const OUTPUT_DIR = join(__dirname, '..', 'data', 'feeds');
 
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+
+function createStableId(prefix, value) {
+  const hash = createHash('sha1').update(value || '').digest('hex').slice(0, 16);
+  return `${prefix}_${hash}`;
+}
 
 // -- State Management --------------------------------------------------------
 
@@ -82,7 +88,7 @@ function parseDongchediPublishTimeText(text) {
     return new Date(now.getTime() - Number(match[1]) * 24 * 60 * 60 * 1000);
   }
 
-  if (normalized.includes('刚刚')) {
+  if (/^刚刚(?:发布|发表)?$/.test(normalized)) {
     return now;
   }
 
@@ -306,19 +312,24 @@ async function searchTavily(query) {
     const data = await response.json();
     const results = data.results || [];
 
-    const items = results.map(item => ({
-      id: `tavily_${Buffer.from(item.url).toString('base64').slice(0, 16)}`,
-      标题: item.title,
-      链接: item.url,
-      来源: new URL(item.url).hostname,
-      来源类型: 'Tavily搜索',
-      来源ID: query.query,
-      发布时间: item.published_date || item.publishedDate || item.publish_date || new Date().toISOString(),
-      内容摘要: item.content || '',
-      热度指数: 0.5,
-      媒体类型: 'text',
-      关键词: []
-    }));
+    const items = results.map(item => {
+      const publishedAt = item.published_date || item.publishedDate || item.publish_date || '';
+
+      return {
+        id: createStableId('tavily', item.url),
+        标题: item.title,
+        链接: item.url,
+        来源: new URL(item.url).hostname,
+        来源类型: 'Tavily搜索',
+        来源ID: query.query,
+        发布时间: publishedAt || new Date().toISOString(),
+        发布时间来源: publishedAt ? 'source' : 'search_fallback',
+        内容摘要: item.content || '',
+        热度指数: publishedAt ? 0.55 : 0.45,
+        媒体类型: 'text',
+        关键词: []
+      };
+    });
 
     console.log(`   ✓ "${query.query}": ${items.length} 条`);
     return items;
@@ -450,28 +461,6 @@ async function main() {
   });
 
   console.log(`   去重后: ${deduplicated.length} 条`);
-
-  // 7.3 如果去重后太少，放宽标准（只去重完全相同的标题）
-  if (deduplicated.length < 20) {
-    console.log(`   ⚠️  文章太少 (${deduplicated.length}条)，放宽去重标准...`);
-
-    // 重新去重，只检查标题完全相同的
-    const seenTitles = new Set();
-    const relaxedDeduplicated = filtered.filter(item => {
-      if (seenTitles.has(item.标题)) {
-        return false;
-      }
-      seenTitles.add(item.标题);
-      state.seenArticles[item.id] = Date.now();
-      return true;
-    });
-
-    console.log(`   放宽后: ${relaxedDeduplicated.length} 条`);
-
-    // 使用放宽后的结果
-    deduplicated.length = 0;
-    deduplicated.push(...relaxedDeduplicated);
-  }
 
   console.log(`🔄 去重后: ${deduplicated.length} 条`);
 
